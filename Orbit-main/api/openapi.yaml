@@ -1,0 +1,870 @@
+openapi: 3.0.3
+info:
+  title: Orbit
+  description: Orbit API documentation.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:9132
+    description: Local Development Server
+  - url: https://Orbit.Akarta.tech
+    description: Production Server
+
+paths:
+  /api/auth/check:
+    get:
+      summary: Check Endpoint for if user is signed in or not.
+      description: Will be useful to check authenticated token after their expiry.
+      responses:
+        "200":
+          description: Authenticated true as well as user is signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  _id:
+                    type: string
+                    example: "60d5ec49f83b"
+                  emailId:
+                    type: string
+                    example: "user@example.com"
+                  role:
+                    type: string
+                    enum: [seller, buyer, admin]
+                    example: "buyer"
+                  isEmailVerified:
+                    type: boolean
+                    example: true
+                  isActive:
+                    type: boolean
+                    example: true
+        "400":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "session expired"
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Internal Server Error"
+
+  /api/auth/signup:
+    post:
+      summary: Sign up user
+      description: User can signup here either with a seller, buyer, or admin profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - firstName
+                - lastName
+                - email
+                - password
+                - age
+                - role
+              properties:
+                firstName:
+                  type: string
+                  example: "Aayush"
+                lastName:
+                  type: string
+                  example: "Verma"
+                email:
+                  type: string
+                  example: "aayush@email.com"
+                password:
+                  type: string
+                  example: "SecuredPassword@123"
+                age:
+                  type: integer
+                  example: 25
+                role:
+                  type: string
+                  enum: [seller, buyer, admin]
+                  example: "seller"
+      responses:
+        "201":
+          description: Register Successfully (Returns user object and sets HttpOnly cookie)
+          headers:
+            Set-Cookie:
+              description: Contains the authentication token
+              schema:
+                type: string
+                example: "token=eyJhbGciOiJIUz...; Path=/; Max-Age=7200; HttpOnly"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Register Successfully"
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        example: "60d5ec49f83b2c3a54cd5291"
+                      firstName:
+                        type: string
+                        example: "Aayush"
+                      lastName:
+                        type: string
+                        example: "Verma"
+                      emailId:
+                        type: string
+                        example: "aayush@email.com"
+                      age:
+                        type: integer
+                        example: 25
+                      role:
+                        type: string
+                        example: "seller"
+        "400":
+          description: Bad Request (Validation failed or user already exists)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Key: 'RegisterRequest.EmailId' Error:Field validation for 'EmailId' failed on the 'email' tag"
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Internal Server Error"
+
+  /api/seller/verify:
+    post:
+      summary: Submit seller verification request
+      description: Submits company details, GSTIN, and bank information for admin approval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - companyName
+                - gstin
+                - bankDetails
+              properties:
+                companyName:
+                  type: string
+                  example: "Jordan India Corp"
+                gstin:
+                  type: string
+                  example: "07AAAAA1111A1Z1"
+                bankDetails:
+                  type: object
+                  required:
+                    - accountHolderName
+                    - accountNumber
+                    - ifscCode
+                    - bankName
+                  properties:
+                    accountHolderName:
+                      type: string
+                      example: "Jordan India Private Limited"
+                    accountNumber:
+                      type: string
+                      example: "91827364554637"
+                    ifscCode:
+                      type: string
+                      example: "HDFC0000123"
+                    bankName:
+                      type: string
+                      example: "HDFC Bank"
+      responses:
+        "202":
+          description: Verification request submitted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Verification request submitted successfully"
+        "400":
+          description: Invalid Request Format
+        "429":
+          description: Cooldown active. Cannot request before next allowed date.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Cooldown active"
+                  next_allowed_date:
+                    type: string
+                    format: date-time
+                    example: "2026-09-14T15:04:05Z"
+        "500":
+          description: Internal Server Error
+
+  /api/seller/isVerified:
+    get:
+      summary: Check seller verification status
+      description: Returns the approval status status along with cooldown limits if rejected.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isApproved:
+                    type: boolean
+                    example: false
+                  nextAllowedAt:
+                    type: string
+                    format: date-time
+                    example: "2026-09-14T15:04:05Z"
+        "403":
+          description: User is not a seller
+        "500":
+          description: Internal Server Error
+
+  /api/seller/events/create:
+    post:
+      summary: Create a single flash sale event
+      description: Registers a unique future event for the authenticated seller.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - eventName
+                - description
+                - scheduledAt
+              properties:
+                eventName:
+                  type: string
+                  example: "Air Jordan Retro Drop"
+                description:
+                  type: string
+                  example: "Exclusive limited edition sneaker drop sale"
+                scheduledAt:
+                  type: string
+                  format: date-time
+                  example: "2026-07-20T18:30:00Z"
+      responses:
+        "201":
+          description: Event Created Successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: "60d5ec49f83b2c3a54cd521a"
+                  eventName:
+                    type: string
+                    example: "Air Jordan Retro Drop"
+                  description:
+                    type: string
+                    example: "Exclusive limited edition sneaker drop sale"
+                  isLive:
+                    type: boolean
+                    example: false
+                  scheduledAt:
+                    type: string
+                    format: date-time
+        "400":
+          description: Validation Failed
+        "403":
+          description: Seller not verified or unauthorized
+        "500":
+          description: Internal Server Error
+
+  /api/seller/events/get:
+    get:
+      summary: Get all events of the authenticated seller
+      description: Fetches a list of all current and historical events created by this specific seller.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    eventName:
+                      type: string
+                    description:
+                      type: string
+                    isLive:
+                      type: boolean
+                    scheduledAt:
+                      type: string
+                      format: date-time
+        "500":
+          description: Internal Server Error
+
+  /api/seller/events/get/{id}:
+    get:
+      summary: Get single event by ID
+      description: Fetches detailed configuration of a specific event.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "60d5ec49f83b2c3a54cd521a"
+      responses:
+        "200":
+          description: Success
+        "404":
+          description: Event not found
+        "500":
+          description: Internal Server Error
+
+  /api/seller/events/update/{id}:
+    put:
+      summary: Update a particular event
+      description: Edits the name, details, or scheduling parameters before it goes live.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                eventName:
+                  type: string
+                description:
+                  type: string
+                scheduledAt:
+                  type: string
+                  format: date-time
+      responses:
+        "200":
+          description: Event updated successfully
+        "404":
+          description: Event not found
+        "500":
+          description: Internal Server Error
+
+  /api/seller/events/delete/{id}:
+    delete:
+      summary: Delete a particular event
+      description: Permanently removes an event and its registered products from the database.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event deleted successfully
+        "404":
+          description: Event not found
+        "500":
+          description: Internal Server Error
+
+  /api/seller/events/{eventId}/registerProducts:
+    post:
+      summary: Register products under an event
+      description: Appends a specific item inventory configuration to the designated event scope.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - description
+                - price
+                - frequency
+                - image
+              properties:
+                title:
+                  type: string
+                  example: "Air Jordan 1 High OG"
+                description:
+                  type: string
+                  example: "Classic red and black design"
+                price:
+                  type: number
+                  example: 15999.00
+                frequency:
+                  type: integer
+                  example: 50
+                image:
+                  type: string
+                  example: "https://assets.akarta.tech/jordan1.png"
+      responses:
+        "201":
+          description: Product registered successfully
+        "404":
+          description: Event scope not found
+        "500":
+          description: Internal Server Error
+
+  /api/seller/events/{eventId}/getProducts:
+    get:
+      summary: Get all products of an event
+      description: Returns the entire catalog of items bundled within this active context. Accessible by both buyers and sellers.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    eventId:
+                      type: string
+                    title:
+                      type: string
+                    description:
+                      type: string
+                    price:
+                      type: number
+                    frequency:
+                      type: integer
+                    image:
+                      type: string
+
+  /api/seller/events/{eventId}/getProduct/{id}:
+    get:
+      summary: Get details of a single product
+      description: Fetches deep information regarding one specific listing. Accessible by both buyers and sellers.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+        "404":
+          description: Product not found
+
+  /api/seller/events/{eventId}/updateProduct/{id}:
+    put:
+      summary: Update particular product
+      description: Updates dynamic pricing or structural data fields prior to execution pipelines.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                price:
+                  type: number
+                frequency:
+                  type: integer
+                image:
+                  type: string
+      responses:
+        "200":
+          description: Product updated successfully
+
+  /api/seller/events/{eventId}/deleteProduct/{id}:
+    delete:
+      summary: Delete a specific product
+      description: Destroys a listing configuration cleanly before system lock status.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Product deleted cleanly
+  /api/seller/events/booking/fetch/{eventId}:
+    get:
+      summary: Fetch booking ledger records
+      description: Obtains transaction lists matching confirmed system purchases within the event parameter boundary.
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transaction sheets retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    bookingId:
+                      type: string
+                    buyerId:
+                      type: string
+                    productId:
+                      type: string
+                    pricePaid:
+                      type: number
+                    timestamp:
+                      type: string
+                      format: date-time
+
+  /api/seller/events/analytics/{id}:
+    get:
+      summary: Retrieve analytical tracking datasets
+      description: Synthesizes execution information to return dynamic metric totals including sell through rates and total incoming capital volumes.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Analytics compiled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalRevenue:
+                    type: number
+                    example: 799950.00
+                  totalBookings:
+                    type: integer
+                    example: 50
+                  sellThroughRate:
+                    type: number
+                    example: 100.0
+
+  /api/auth/signin:
+    post:
+      summary: Sign in user (alternate signin path)
+      description: Verifies the user with email and password and returns a session token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  example: "abc@example.com"
+                password:
+                  type: string
+                  example: "SecuredPassword@123"
+      responses:
+        "200":
+          description: Sign in successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Sign In Successfully"
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        example: "obj9023"
+                      firstName:
+                        type: string
+                        example: "Aayush"
+                      lastName:
+                        type: string
+                        example: "Verma"
+                      email:
+                        type: string
+                        example: "aayush@email.com"
+                      role:
+                        type: string
+                        example: "seller"
+        "400":
+          description: Unauthorized Access
+        "500":
+          description: Internal Server Error
+
+  /api/buyer/events:
+    get:
+      summary: Get live events (buyer view)
+      description: Returns a list of live events available to buyers.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    eventName:
+                      type: string
+                    description:
+                      type: string
+                    isLive:
+                      type: boolean
+                    scheduledAt:
+                      type: string
+                      format: date-time
+        "500":
+          description: Internal Server Error
+
+  /api/buyer/event/{id}:
+    get:
+      summary: Get products for an event (buyer)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    eventId:
+                      type: string
+                    title:
+                      type: string
+                    description:
+                      type: string
+                    price:
+                      type: number
+                    frequency:
+                      type: integer
+                    image:
+                      type: string
+        "404":
+          description: Event not found
+        "500":
+          description: Internal Server Error
+
+  /api/buyer/event/{eventId}/purchase/{productId}:
+    post:
+      summary: Purchase a product in an event
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                quantity:
+                  type: integer
+                  example: 1
+                paymentMethod:
+                  type: string
+                  example: "card"
+      responses:
+        "201":
+          description: Purchase completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookingId:
+                    type: string
+        "400":
+          description: Bad Request
+        "403":
+          description: Unauthorized or not allowed
+        "500":
+          description: Internal Server Error
+
+  /api/admin/verifications/pending:
+    get:
+      summary: List pending seller verifications
+      description: Returns verification requests awaiting admin action.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    companyName:
+                      type: string
+                    gstin:
+                      type: string
+                    submittedAt:
+                      type: string
+                      format: date-time
+        "500":
+          description: Internal Server Error
+
+  /api/admin/verifications/{id}:
+    get:
+      summary: Get verification request detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success
+        "404":
+          description: Not found
+        "500":
+          description: Internal Server Error
+
+  /api/admin/verifications/{id}/approve:
+    post:
+      summary: Approve a verification request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Approved successfully
+        "404":
+          description: Not found
+        "500":
+          description: Internal Server Error
+
+  /api/admin/verifications/{id}/reject:
+    post:
+      summary: Reject a verification request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Rejected successfully
+        "404":
+          description: Not found
+        "500":
+          description: Internal Server Error
